@@ -1,0 +1,151 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
+import { corsHeaders } from '../_shared/cors.ts';
+
+const url = Deno.env.get('SUPABASE_URL')!;
+const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const db = createClient(url, serviceKey, { auth: { persistSession: false } });
+const categories = ['Gaming & Pop Culture','General Knowledge','Science & Technology'];
+// correctIndex is kept inside the server function and is never returned to browsers.
+const BANK = [
+ {id:'g1',category:'Gaming & Pop Culture',prompt:'Which company created the Super Mario game franchise?',options:['Sega','Nintendo','Capcom','Sony'],correctIndex:1},
+ {id:'g2',category:'Gaming & Pop Culture',prompt:'In Minecraft, which material is commonly used to craft a Nether portal frame?',options:['Obsidian','Granite','Iron blocks','Quartz'],correctIndex:0},
+ {id:'g3',category:'Gaming & Pop Culture',prompt:'What is the name of the fictional continent in most of The Witcher saga?',options:['Tamriel','Westeros','The Continent','Azeroth'],correctIndex:2},
+ {id:'g4',category:'Gaming & Pop Culture',prompt:'Which battle royale game features the map Erangel?',options:['Apex Legends','PUBG: Battlegrounds','Fortnite','Warzone'],correctIndex:1},
+ {id:'g5',category:'Gaming & Pop Culture',prompt:'Which superhero is also known as the Dark Knight?',options:['Iron Man','Superman','Batman','Daredevil'],correctIndex:2},
+ {id:'g6',category:'Gaming & Pop Culture',prompt:'Which studio developed the game Elden Ring?',options:['FromSoftware','Naughty Dog','CD Projekt Red','Insomniac Games'],correctIndex:0},
+ {id:'g7',category:'Gaming & Pop Culture',prompt:'What is the name of the school attended by Harry Potter?',options:['Durmstrang','Beauxbatons','Hogwarts','Ilvermorny'],correctIndex:2},
+ {id:'g8',category:'Gaming & Pop Culture',prompt:'Which instrument is central to the rhythm gameplay of Guitar Hero?',options:['Drums','Guitar-shaped controller','Keyboard','Microphone'],correctIndex:1},
+ {id:'g9',category:'Gaming & Pop Culture',prompt:'In Pokémon, what type is Pikachu?',options:['Fire','Electric','Water','Psychic'],correctIndex:1},
+ {id:'g10',category:'Gaming & Pop Culture',prompt:'Which film features the quote “May the Force be with you”?',options:['Star Trek','The Matrix','Star Wars','Blade Runner'],correctIndex:2},
+ {id:'k1',category:'General Knowledge',prompt:'What is the capital city of Australia?',options:['Sydney','Canberra','Melbourne','Perth'],correctIndex:1},
+ {id:'k2',category:'General Knowledge',prompt:'How many sides does a hexagon have?',options:['Five','Six','Seven','Eight'],correctIndex:1},
+ {id:'k3',category:'General Knowledge',prompt:'Which ocean is the largest on Earth?',options:['Atlantic','Indian','Arctic','Pacific'],correctIndex:3},
+ {id:'k4',category:'General Knowledge',prompt:'Which currency is used in Japan?',options:['Won','Yuan','Yen','Ringgit'],correctIndex:2},
+ {id:'k5',category:'General Knowledge',prompt:'How many colors are traditionally listed in a rainbow?',options:['Five','Six','Seven','Eight'],correctIndex:2},
+ {id:'k6',category:'General Knowledge',prompt:'Which country is home to the ancient city of Petra?',options:['Egypt','Jordan','Greece','Turkey'],correctIndex:1},
+ {id:'k7',category:'General Knowledge',prompt:'What is the hardest naturally occurring mineral?',options:['Quartz','Topaz','Diamond','Corundum'],correctIndex:2},
+ {id:'k8',category:'General Knowledge',prompt:'Which language has the most native speakers worldwide?',options:['English','Spanish','Hindi','Mandarin Chinese'],correctIndex:3},
+ {id:'k9',category:'General Knowledge',prompt:'How many players from one team are on the field in standard soccer?',options:['9','10','11','12'],correctIndex:2},
+ {id:'k10',category:'General Knowledge',prompt:'Which is the smallest prime number?',options:['0','1','2','3'],correctIndex:2},
+ {id:'s1',category:'Science & Technology',prompt:'What is the chemical symbol for gold?',options:['Ag','Au','Gd','Go'],correctIndex:1},
+ {id:'s2',category:'Science & Technology',prompt:'Which planet is known as the Red Planet?',options:['Venus','Mars','Jupiter','Mercury'],correctIndex:1},
+ {id:'s3',category:'Science & Technology',prompt:'What does CPU stand for?',options:['Central Processing Unit','Computer Power Utility','Core Program Upload','Central Performance User'],correctIndex:0},
+ {id:'s4',category:'Science & Technology',prompt:'Which gas do plants absorb during photosynthesis?',options:['Oxygen','Nitrogen','Carbon dioxide','Hydrogen'],correctIndex:2},
+ {id:'s5',category:'Science & Technology',prompt:'What is the approximate speed of light in a vacuum?',options:['300,000 km/s','30,000 km/s','3,000 km/s','3,000,000 km/s'],correctIndex:0},
+ {id:'s6',category:'Science & Technology',prompt:'Which part of a cell contains most of its genetic material?',options:['Ribosome','Nucleus','Cell membrane','Cytoplasm'],correctIndex:1},
+ {id:'s7',category:'Science & Technology',prompt:'What is H₂O commonly known as?',options:['Hydrogen peroxide','Salt','Water','Oxygen'],correctIndex:2},
+ {id:'s8',category:'Science & Technology',prompt:'Which technology is primarily used to record transactions in a tamper-resistant distributed ledger?',options:['Bluetooth','Blockchain','NFC','Rasterization'],correctIndex:1},
+ {id:'s9',category:'Science & Technology',prompt:'What is the closest star to Earth?',options:['Sirius','Proxima Centauri','The Sun','Alpha Centauri A'],correctIndex:2},
+ {id:'s10',category:'Science & Technology',prompt:'Which unit measures electrical resistance?',options:['Volt','Watt','Ampere','Ohm'],correctIndex:3}
+];
+function safeQuestion(q: typeof BANK[number]) { return { id:q.id, category:q.category, prompt:q.prompt, options:q.options }; }
+function code6(){ return crypto.randomUUID().replaceAll('-','').slice(0,6).toUpperCase(); }
+function shuffle<T>(a:T[]){ const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b; }
+async function roomView(roomId:string, playerId?:string){
+ const {data:room,error}=await db.from('rooms').select('*').eq('id',roomId).single(); if(error||!room) throw new Error('Room not found.');
+ const {data:players,error:pe}=await db.from('players').select('id,nickname,score,is_host').eq('room_id',roomId).order('joined_at'); if(pe) throw pe;
+ const q=room.current_question;
+ return {id:room.id,code:room.code,status:room.status,category:room.category,question_index:room.question_index,question_started_at:room.question_started_at,current_question:q,total_questions:room.total_questions,players:players||[],question:q};
+}
+async function requirePlayer(roomId:string, playerId:string){ const {data,error}=await db.from('players').select('*').eq('id',playerId).eq('room_id',roomId).single(); if(error||!data) throw new Error('Player not found in this room.'); return data; }
+async function advance(room:any){
+ const now=Date.now(); const started=room.question_started_at?new Date(room.question_started_at).getTime():now;
+ if(now-started<15000) throw new Error('This round is still active.');
+ const {data:subs}=await db.from('submissions').select('*').eq('room_id',room.id).eq('question_index',room.question_index);
+ const qId=room.question_ids[room.question_index]; const q=BANK.find(x=>x.id===qId); if(!q) throw new Error('Question data unavailable.');
+ for(const s of (subs||[])) { if(s.answer_index===q.correctIndex){ const elapsed=Math.max(0,(new Date(s.submitted_at).getTime()-started)/1000); const speed=Math.max(0,Math.round((15-elapsed)/15*500)); const {data:p}=await db.from('players').select('score').eq('id',s.player_id).single(); await db.from('players').update({score:(p?.score||0)+500+speed}).eq('id',s.player_id); } }
+ const next=room.question_index+1;
+ if(next>=room.total_questions){await db.from('rooms').update({status:'finished',question_index:next,question_started_at:null,current_question:null}).eq('id',room.id);}
+ else {const nextQ=BANK.find(x=>x.id===room.question_ids[next]); await db.from('rooms').update({question_index:next,question_started_at:new Date().toISOString(),current_question:safeQuestion(nextQ!)}).eq('id',room.id);}
+}
+Deno.serve(async (req)=>{
+ if(req.method==='OPTIONS') return new Response('ok',{headers:corsHeaders});
+ try {
+  const body=await req.json(); const {action}=body;
+  let result:any;
+  if(action==='create_room'){
+   const nickname=String(body.nickname||'').trim().slice(0,18); const category=String(body.category||''); if(nickname.length<2) throw new Error('Nickname must contain at least 2 characters.'); if(!categories.includes(category)) throw new Error('Choose a valid category.');
+   let code=code6(); for(let i=0;i<5;i++){const {data}=await db.from('rooms').select('id').eq('code',code).maybeSingle();if(!data)break;code=code6();}
+   const {data:room,error}=await db.from('rooms').insert({code,category,total_questions:10}).select().single(); if(error) throw error;
+   const {data:player,error:playerError}=await db.from('players').insert({room_id:room.id,nickname,is_host:true}).select().single();if(playerError)throw playerError;
+   await db.from('rooms').update({host_player_id:player.id}).eq('id',room.id); result={playerId:player.id,room:await roomView(room.id,player.id)};
+  } else if(action==='join_room'){
+   const nickname=String(body.nickname||'').trim().slice(0,18); const code=String(body.code||'').trim().toUpperCase(); if(nickname.length<2)throw new Error('Nickname must contain at least 2 characters.');
+   const {data:room,error}=await db.from('rooms').select('*').eq('code',code).single();if(error||!room)throw new Error('No room found with that code.');if(room.status!=='lobby')throw new Error('This match has already started. Ask the host to create a new room.');
+   const {data:existing}=await db.from('players').select('id').eq('room_id',room.id).ilike('nickname',nickname).maybeSingle();if(existing)throw new Error('That nickname is already taken in this room.');
+   const {data:player,error:pe}=await db.from('players').insert({room_id:room.id,nickname,is_host:false}).select().single();if(pe)throw pe;result={playerId:player.id,room:await roomView(room.id,player.id)};
+  } else if(action==='get_room'){
+   const roomId=String(body.roomId||'');const playerId=String(body.playerId||'');await requirePlayer(roomId,playerId);result={room:await roomView(roomId,playerId)};
+  } else if(action==='start_game'){
+   const roomId=String(body.roomId||'');const player=await requirePlayer(roomId,String(body.playerId||''));if(!player.is_host)throw new Error('Only the host can start the game.');
+   const {data:room,error}=await db.from('rooms').select('*').eq('id',roomId).single();if(error||!room)throw new Error('Room not found.');if(room.status!=='lobby')throw new Error('The game has already started.');
+   const eligible=BANK.filter(q=>q.category===room.category);const selected=shuffle(eligible).slice(0,10);if(selected.length<10)throw new Error('Not enough questions configured for this category.');
+   await db.from('players').update({score:0}).eq('room_id',roomId);await db.from('rooms').update({status:'playing',question_index:0,question_started_at:new Date().toISOString(),question_ids:selected.map(q=>q.id),current_question:safeQuestion(selected[0])}).eq('id',roomId);result={room:await roomView(roomId,player.id)};
+  } else if(action==='submit_answer'){
+   const roomId=String(body.roomId||'');const playerId=String(body.playerId||'');const answerIndex=Number(body.answerIndex);const player=await requirePlayer(roomId,playerId);const {data:room,error}=await db.from('rooms').select('*').eq('id',roomId).single();if(error||!room)throw new Error('Room not found.');if(room.status!=='playing')throw new Error('The round is not active.');if(!Number.isInteger(answerIndex)||answerIndex<0||answerIndex>3)throw new Error('Invalid answer.');
+   if(Date.now()-new Date(room.question_started_at).getTime()>15000)throw new Error('Time is up.');const {error:se}=await db.from('submissions').insert({room_id:roomId,player_id:player.id,question_index:room.question_index,answer_index});if(se?.code==='23505')throw new Error('Your answer is already locked in.');if(se)throw se;result={room:await roomView(roomId,playerId)};
+  } else if(action==='advance_round'){
+   const roomId=String(body.roomId||'');const player=await requirePlayer(roomId,String(body.playerId||''));if(!player.is_host)throw new Error('Only the host can advance the round.');const {data:room,error}=await db.from('rooms').select('*').eq('id',roomId).single();if(error||!room)throw new Error('Room not found.');if(room.status!=='playing')throw new Error('The game is not active.');await advance(room);result={room:await roomView(roomId,player.id)};
+  } else if(action==='restart_game'){
+   const roomId=String(body.roomId||'');const player=await requirePlayer(roomId,String(body.playerId||''));if(!player.is_host)throw new Error('Only the host can restart the game.');const {data:room,error}=await db.from('rooms').select('*').eq('id',roomId).single();if(error||!room)throw new Error('Room not found.');await db.from('submissions').delete().eq('room_id',roomId);await db.from('players').update({score:0}).eq('room_id',roomId);await db.from('rooms').update({status:'lobby',question_index:0,question_started_at:null,current_question:null,question_ids:[]}).eq('id',roomId);result={room:await roomView(roomId,player.id)};
+  } else throw new Error('Unknown action.');
+  return new Response(JSON.stringify(result),{headers:{...corsHeaders,'Content-Type':'application/json'}});
+ } catch(e) { const message=e instanceof Error?e.message:'Unexpected server error'; return new Response(JSON.stringify({error:message}),{status:400,headers:{...corsHeaders,'Content-Type':'application/json'}}); }
+});
+for(const s of (subs||[])){
+
+for (const s of (subs || [])) {
+  if (s.answer_index !== q.correctIndex) continue;
+
+  const submittedAt = new Date(s.submitted_at).getTime();
+  const elapsed = Math.max(0, (submittedAt - started) / 1000);
+  const speed = Math.max(0, Math.round((15 - elapsed) / 15 * 500));
+
+  const { data: player, error: readError } = await db
+    .from('players')
+    .select('score')
+    .eq('id', s.player_id)
+    .single();
+
+  if (readError || !player) {
+    throw new Error(
+      `Could not read player score: ${readError?.message ?? 'Player not found'}`
+    );
+  }
+
+  const newScore = (player.score ?? 0) + 500 + speed;
+
+  const { error: updateError } = await db
+    .from('players')
+    .update({ score: newScore })
+    .eq('id', s.player_id);
+
+  if (updateError) {
+    throw new Error(`Could not update player score: ${updateError.message}`);
+  }
+}
+
+
+    } else {
+      throw new Error("Unknown action");
+    }
+
+    return new Response(JSON.stringify(result), {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected server error";
+
+    return new Response(JSON.stringify({ error: message }), {
+      status: 400,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+      },
+    });
+  }
+});
